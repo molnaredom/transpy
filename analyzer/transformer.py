@@ -12,7 +12,7 @@ def is_inside_if(lines, pos, base_indent):
     #print(f"Indent at line: ({lines[pos].strip()}): {indent}")
     stripped = lines[pos].strip()
 
-    if (stripped.startswith("#") or not bool(stripped)): # Empty / comment lines, have to check ahead if possible. 
+    if (stripped.startswith("#") or not bool(stripped)): # Empty / comment lines, have to check ahead if possible.
         if pos+1 < len(lines):
             return is_inside_if(lines, pos+1, base_indent)
         return False
@@ -21,7 +21,7 @@ def is_inside_if(lines, pos, base_indent):
         # Line is indented inside base_indent
         return True
     elif indent == base_indent: # Line is at the same indentation
-        if (stripped.startswith("else:") or stripped.startswith("elif") or stripped.startswith(")")): 
+        if (stripped.startswith("else:") or stripped.startswith("elif") or stripped.startswith(")")):
             return True # its just another branch or multiline test
 
     return False
@@ -32,7 +32,7 @@ def count_actual_lines( lines, pos):
     if not lines[pos].startswith('if'):
         while not lines[pos+offset].strip().startswith('if'):
             offset -= 1
-        
+
     base_indent = indentation(lines[pos+offset])
     #print(f"Base-Indent at line: ({lines[pos+offset].strip()}): {base_indent}")
     res = 1 - offset
@@ -58,6 +58,7 @@ class Transformer(ast.NodeTransformer):
         #self.differ = OutputHandler("diffs.diff") if  else None
         self.generate_diffs = config["OUTPUT"].getboolean("GenerateDiffs")
         self.visited_nodes = 0
+        self.code = None
 
     def log(self, text):
         if self.logger is not None:
@@ -67,9 +68,8 @@ class Transformer(ast.NodeTransformer):
         #self.log(f"Transforming If-node at ({node.test.lineno})")
         self.visited_nodes += 1
         self.analyzer.visit(node)
-        
         if node in self.analyzer.subjects.keys():
-           #self.lines[node.test.lineno-1] = count_lines(node) 
+           #self.lines[node.test.lineno-1] = count_lines(node)
             subjectNode = self.analyzer.subjects[node]
             _cases = []
             for branch in self.analyzer.branches[node]:
@@ -90,7 +90,7 @@ class Transformer(ast.NodeTransformer):
                     #print(ast.unparse(temp))
                     transformed_branch = ast.match_case(pattern = _pattern, guard = _guard, body = temp.body)
                     _cases.append(transformed_branch)
-            result = ast.Match(subject = subjectNode, cases = _cases) 
+            result = ast.Match(subject = subjectNode, cases = _cases)
             self.results[node.test.lineno-1] = result
             return result
         elif self.visit_recursively:
@@ -115,19 +115,21 @@ class Transformer(ast.NodeTransformer):
         # Reading the source file
         with open(file, "r", encoding='utf-8-sig') as src:
             try:
-                tree = ast.parse(src.read())
+                k = src.read()
+                self.code = k.splitlines()
+                tree = ast.parse(k)
             except SyntaxError as error:
                 self.log(f"SyntaxError in '{file}': {error.msg} - line({error.lineno})")
                 return
             except UnicodeDecodeError as error:
                 self.log(f"UnicodeDecodeError in {file}")
                 return
-                
+
             self.analyzer.file = file
             self.visit(tree)
             if len(self.results.keys()) == 0:
                 return
-                
+
             src.seek(0)
             src_lines = tuple(src.readlines())
             comments = None
@@ -138,24 +140,59 @@ class Transformer(ast.NodeTransformer):
                 for token in tokens:
                     if token.type == 61:
                         comments[token.start[0]] = token.string
-
+        print(self.results.keys())
         # Writing the (transformed) file
+
+        szakasz = 0
+        # kerdes felteves
+        i = 0 # nemtommi
+        while i < len(src_lines):
+            if i in self.results.keys():
+                # print(f"LINE {i} IS IN RESULTS")
+                if_length, offset = count_actual_lines(src_lines, i)
+                self.results[i] = (self.results[i], if_length)
+                if offset != 0:
+                    # print(f" AT LINE ({i}) OFFSET IS: {offset}")
+                    self.results[i + offset] = self.results[i]
+            i += 1
+
+        i= 0
+        while i < len(src_lines):
+            if i in self.results.keys():
+                indent = indentation(src_lines[i])
+                res = ast.unparse(self.results[i][0]).splitlines()
+                if self.preserve_comments:
+                    flag = False
+                    for key in comments.keys():
+                        if key in range(i, i + self.results[i][1] - 1):
+                            if not flag:
+                                print("[#]: ", (indent + 1) * " " + comments[key])
+                            flag = True
+                for newLine in res:
+                    print("[+]: ", indent * " " + newLine)
+                for _ in res:
+                    print("[-]: ", src_lines[i], end="")
+                    i+=1
+
+                print("------------------------")
+                # i += self.results[i][1] - 1
+                # print("+++", self.results[i][1])
+                # i += self.results[i][1] -1
+            else:
+                print("OLD: ", src_lines[i], end="")
+            # a = input("Megtartanád?")
+
+            i += 1
+
+
+
         with open(file, "w", encoding='utf-8-sig') as out:
             i = 0
-            while i < len(src_lines):
-                if i in self.results.keys():
-                    #print(f"LINE {i} IS IN RESULTS")
-                    if_length, offset = count_actual_lines(src_lines, i)
-                    self.results[i] = (self.results[i], if_length)
-                    if offset != 0:
-                        #print(f" AT LINE ({i}) OFFSET IS: {offset}")
-                        self.results[i+offset] = self.results[i]
-                i += 1
-            
-            i = 0
+            # fileba iratas
             while i < len(src_lines):
                 if i in self.results.keys():
                     indent = indentation(src_lines[i])
+                    print("indent: ", indent)
                     res = ast.unparse(self.results[i][0]).splitlines()
                     if self.preserve_comments:
                         flag = False
@@ -166,13 +203,15 @@ class Transformer(ast.NodeTransformer):
                                 flag = True
                                 out.write((indent+1) * " " + comments[key] + "\n")
                     for newLine in res:
+                        print("NL: ",indent * " " + newLine)
                         out.write(indent * " " + newLine + "\n")
                     i += self.results[i][1] -1
                 else:
+                    print("el: ", src_lines[i], end="")
                     out.write(src_lines[i])
                 i += 1
 
-        # Checking for SyntaxErrors in the transformed file   
+        # Checking for SyntaxErrors in the transformed file
         with open(file, "r", encoding='utf-8-sig') as f:
             new_lines = f.read()
             f.seek(0)
@@ -190,10 +229,9 @@ class Transformer(ast.NodeTransformer):
         if self.generate_diffs and OutputHandler.OUTPUT_FOLDER:
             import os
             from pathlib import Path
-        
+
             diff = difflib.context_diff(src_lines, newlines, fromfile= str(file), tofile= str(file))
             diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
 
             with open(diffile, 'w', encoding='utf-8-sig') as f:
                 f.writelines(diff)
-            

@@ -26,9 +26,10 @@ from .utils import OutputHandler
 def transform_helper(file):
     tr = Transformer()
     tr.transform(file)
+    print((tr.visited_nodes,"\n......................\n",  tr.results.keys()))
     return (tr.visited_nodes, len(tr.results.keys()))
 
-    
+
 # Needed for ProcessPoolExecutor init, since new processes dont get the static variable
 def init_output(path):
     OutputHandler.OUTPUT_FOLDER = path
@@ -36,12 +37,12 @@ def init_output(path):
 def make_output_folder(default_path):
     if not config["OUTPUT"].getboolean("AllowOutput"):
         return
-    
+
     print(f"Output is enabled!")
     output_dir = config["OUTPUT"]["OutputFolderPath"]
     if not (Path(output_dir).exists() and Path(output_dir).is_dir()):
         output_dir = (default_path) if default_path.is_dir() else (default_path.parent)
-    
+
     output_dir = (Path(output_dir) / 'transpy-output').resolve()
 
     try:
@@ -54,4 +55,3 @@ def make_output_folder(default_path):
         os.mkdir(output_dir / 'diffs')
     OutputHandler.OUTPUT_FOLDER = output_dir
     print(f"Output directory is: '{OutputHandler.OUTPUT_FOLDER}'")
-    

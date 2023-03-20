@@ -28,26 +28,26 @@ class Analyzer(ast.NodeVisitor):
             Analyzer.Patterns = tuple(load_patterns())
             for pattern in Analyzer.Patterns:
                 pattern.Patterns = Analyzer.Patterns
-        
+
     def visit_If(self, node):
         self.branches[node] = get_branches(node)
-        
+
         # Looping through the If-nodes branches
         for branch in self.branches[node]:
             # Skipping trivial 'else:' branches.
             if branch.test is None:
                 continue
-                
+
             # Determine the main pattern of the branch
             branch_pattern = self.recognise_Branch(branch)
             if branch_pattern is None: # If no pattern recognises the branch, then delete the whole if node from the dict and return.
                 self.log(f"If-node in '{self.file}' at line ({node.test.lineno}) is not transformable: Branch ({ast.unparse(branch.test)}) is not recognisable!")
                 del self.branches[node]
                 return
-                
+
             self.patterns[branch] = branch_pattern
 
-                
+
 
         # An if-node can be transformed, if all of its branches are recognised patterns, and these patterns can all recognise the same subject.
         # Intersecting the possible subjects for each branch
@@ -56,8 +56,8 @@ class Analyzer(ast.NodeVisitor):
         # Skipping "else:" branch
         for branch in [b for b in self.branches[node] if b.test is not None]:
             potential_subjects = potential_subjects.intersection(self.patterns[branch].potential_subjects())
-        
-        
+
+
         if len(potential_subjects) == 0: # No common subject across branches -> reject
             self.log(f"If-node in '{self.file}' at line ({node.test.lineno}) is not transformable: No common subject is found!")
             del self.branches[node]
@@ -68,7 +68,7 @@ class Analyzer(ast.NodeVisitor):
                 subjects.add(ast.unparse(subj))
             self.log(f"If-node in '{self.file}' at line ({node.test.lineno}) has more than one common subjects: {subjects}")
 
-        self.subjects[node] = potential_subjects.pop() 
+        self.subjects[node] = potential_subjects.pop()
 
         number_of_subBranches = 0
         for branch in self.branches[node]:
@@ -99,28 +99,28 @@ class Analyzer(ast.NodeVisitor):
                                         temp.remove(term)
                             case _:
                                 temp.remove(subBranch.mainTest)
-                        
+
                         if temp == guardList: # Found ugly branch
                             if not config["FLATTENING"].getboolean("AllowUglyFlattening"):
                                 self.log(f"Branch in '{self.file}' at line ({branch.body[0].lineno-1}) cannot be flattened! Would result in ugly subBranch: ({ast.unparse(subBranch.test)})")
                             isUgly = True
-            
+
                 if (not isUgly or config["FLATTENING"].getboolean("AllowUglyFlattening")) and can_be_flattened:
                     branch.flat = subBranches
                     number_of_subBranches += len(subBranches)
 
             else:
                 self.log(f"Branch in '{self.file}' at line ({branch.body[0].lineno-1}) cannot be flattened!")
-
+        # print("-----\nnumber_of_subBranches", number_of_subBranches)
+        # print("LEN self.branches[node]", len(self.branches[node]))
         # TODO config: minimum number of branches for an If-node to be transformed
-
         if len(self.branches[node]) + number_of_subBranches < config["MAIN"].getint("MinimumBranches"):
             self.log(f"If-node in '{self.file}' at line ({node.test.lineno}) does not have enough branches: ({len(self.branches[node]) + number_of_subBranches})")
             del self.branches[node]
             del self.subjects[node]
 
 
-                            
+
 
 
 def main():
@@ -132,4 +132,4 @@ if __name__ == "__main__":
     main()
 
 
-    
+
