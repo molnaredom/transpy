@@ -143,8 +143,6 @@ class Transformer(ast.NodeTransformer):
         print(self.results.keys())
         # Writing the (transformed) file
 
-        szakasz = 0
-        # kerdes felteves
         i = 0 # nemtommi
         while i < len(src_lines):
             if i in self.results.keys():
@@ -156,11 +154,19 @@ class Transformer(ast.NodeTransformer):
                     self.results[i + offset] = self.results[i]
             i += 1
 
-        i= 0
+        # kerdes felteves
+        i = 0
         while i < len(src_lines):
             if i in self.results.keys():
+
                 indent = indentation(src_lines[i])
                 res = ast.unparse(self.results[i][0]).splitlines()
+                print(f"""
+                                ------------------------------------------
+                                #       | original | transpy
+                                sorszám | {len(res)}      | {self.results[i][1]} 
+                                ------------------------------------------
+                                """)
                 if self.preserve_comments:
                     flag = False
                     for key in comments.keys():
@@ -168,16 +174,13 @@ class Transformer(ast.NodeTransformer):
                             if not flag:
                                 print("[#]: ", (indent + 1) * " " + comments[key])
                             flag = True
-                for newLine in res:
+                for newLine in res: # KICSERELENDO SOROK
                     print("[+]: ", indent * " " + newLine)
-                for _ in res:
+                for _ in range(self.results[i][1]): # TORLENDO AOROK
                     print("[-]: ", src_lines[i], end="")
                     i+=1
 
                 print("------------------------")
-                # i += self.results[i][1] - 1
-                # print("+++", self.results[i][1])
-                # i += self.results[i][1] -1
             else:
                 print("OLD: ", src_lines[i], end="")
             # a = input("Megtartanád?")
