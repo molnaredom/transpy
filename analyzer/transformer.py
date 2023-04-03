@@ -81,65 +81,59 @@ class Transformer(ast.NodeTransformer):
             # self.analyzer.
             subjectNode = self.analyzer.subjects[node] # a változóneve,--> astra alakitva maga az érték
             _cases = [] # if elif else , ilyesmik gyujtese
-            with open("kjo.py", "w") as sf:
-                for branch in self.analyzer.branches[node]:
-                    # print("\nEgy node atlakaitas alatt")
-                    # print("N", ast.unparse(node) if node is not None else "---")
-                    if branch.flat:
-                        # print(f"TRANSFORMER: BRANCH IS FLATTENED")
-                        for subBranch in branch.flat:
-                            pattern = self.analyzer.patterns[subBranch]
-                            transformed_branch = ast.match_case(pattern = pattern.transform(subjectNode), guard = pattern.guard(subjectNode), body = subBranch.body)
-                            _cases.append(transformed_branch)
-                    else:
-                        # print(f"TRANSFORMER: BRANCH IS NOT FLATTENED")
-                        # print("S", ast.unparse(subjectNode) if subjectNode is not None else "---")
-                        _pattern = ast.MatchAs() if branch.test is None else self.analyzer.patterns[branch].transform(subjectNode)
-                        _guard = None if branch.test is None else self.analyzer.patterns[branch].guard(subjectNode)
-                        temp = ast.Module(body = branch.body, type_ignores=[])
-                        if self.visit_recursively:
-                            self.generic_visit(temp)
-                        # print("TRANSFORMER TEMP:")
-                        # print( if _pattern is not None else "---")
-                        # print(ast.unparse(_guard)if _guard is not None else "---")
-                        # print(ast.unparse(temp)if temp is not None else "---")
-                        transformed_branch = ast.match_case(pattern = _pattern, guard = _guard, body = temp.body)
+            res = []
+            for branch in self.analyzer.branches[node]:
+                if branch.flat:
+                    # print(f"TRANSFORMER: BRANCH IS FLATTENED")
+                    for subBranch in branch.flat:
+                        pattern = self.analyzer.patterns[subBranch]
+                        transformed_branch = ast.match_case(pattern = pattern.transform(subjectNode), guard = pattern.guard(subjectNode), body = subBranch.body)
                         _cases.append(transformed_branch)
-                        # print("_", ast.unparse(branch)if transformed_branch is not None else "---")
-                        # tra = ast.unparse(transformed_branch)
-                        body_sorok = ast.unparse(temp)
-                        uj = ast.unparse(transformed_branch)
-                        old = ast.unparse(branch.body)
-                        def sorellenor(sor, rekurziv_akcio):
-                            global ast_sorok
-                            if f"in{ast_sorok}" in comments:
-                                sor += comments[f"in{ast_sorok}"]
-                                if rekurziv_akcio:
-                                    sor += "\n"+"\n".join(rekurziv_akcio)
-                                return sor
-                            elif f"out{ast_sorok}" in comments:
-                                # sor = ""
-                                print("R", rekurziv_akcio)
-                                rekurziv_akcio.append(comments[f"out{ast_sorok}"])
-                                ast_sorok += 1
-                                return sorellenor(sor, rekurziv_akcio=rekurziv_akcio)
-                            else:
-
-                                return sor # semilyen komment nem volt
-
-
-                        for sor in uj.splitlines():
-                            ujsor = sorellenor(sor, [])
-                            # print(f"[{ast_sorok}]({old_sorok})",ujsor)
-                            sf.write(ujsor+"\n")
+                else:
+                    _pattern = ast.MatchAs() if branch.test is None else self.analyzer.patterns[branch].transform(subjectNode)
+                    _guard = None if branch.test is None else self.analyzer.patterns[branch].guard(subjectNode)
+                    temp = ast.Module(body = branch.body, type_ignores=[])
+                    if self.visit_recursively:
+                        self.generic_visit(temp)
+                    transformed_branch = ast.match_case(pattern = _pattern, guard = _guard, body = temp.body)
+                    _cases.append(transformed_branch)
+                    # print("_", ast.unparse(branch)if transformed_branch is not None else "---")
+                    # tra = ast.unparse(transformed_branch)
+                    body_sorok = ast.unparse(temp)
+                    uj = ast.unparse(transformed_branch)
+                    old = ast.unparse(branch.body)
+                    def sorellenor(sor, rekurziv_akcio):
+                        global ast_sorok
+                        if f"in{ast_sorok}" in comments:
+                            sor += comments[f"in{ast_sorok}"]
+                            if rekurziv_akcio:
+                                sor += "\n"+"\n".join(rekurziv_akcio)
+                            return sor
+                        elif f"out{ast_sorok}" in comments:
+                            # sor = ""
+                            print("R", rekurziv_akcio)
+                            rekurziv_akcio.append(comments[f"out{ast_sorok}"])
                             ast_sorok += 1
+                            return sorellenor(sor, rekurziv_akcio=rekurziv_akcio)
+                        else:
 
-                        old_sorok+= old.count("\n") +2
+                            return sor # semilyen komment nem volt
 
-                print("_cases", len(_cases))
-                result = ast.Match(subject = subjectNode, cases = _cases) # mar atalakitott cucc
-                self.results[node.test.lineno-1] = result
-                return result
+                    for sor in uj.splitlines():
+                        ujsor = sorellenor(sor, [])
+                        res.append(" "*4 +ujsor+"\n")
+                        ast_sorok += 1
+
+                    old_sorok += old.count("\n") +2
+
+            # print("_cases", len(_cases))
+            ast_atalakitott = ast.Match(subject = subjectNode, cases = _cases) # mar atalakitott cucc
+            # print(type(ast_atalakitott))
+            res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
+            # print("UJres ", res)
+            self.results[node.test.lineno-1] = res
+
+            return res
         elif self.visit_recursively:
             curr_node = node
             while isinstance(curr_node, ast.If):
@@ -159,7 +153,7 @@ class Transformer(ast.NodeTransformer):
 
     def transform(self, file):
         # Reading the source file
-        with open(file, "r", encoding='utf-8-sig') as src:
+        with open(file, "r", encoding='utf-8') as src:
             try:
                 k = src.read()
                 self.code = k.splitlines()
@@ -178,30 +172,22 @@ class Transformer(ast.NodeTransformer):
                 comments = {}
                 src.seek(0)
                 tokens = generate_tokens(src.readline)
-                print("tokens", tokens)
                 cikluskezdet = True
                 for token in tokens:
                     if token.type == 61:
                         if cikluskezdet:
-                            comments[f"out{token.start[0]}"] = token.string
-                            print("K-out", token.string)
+                            comments[f"out{token.start[0]}"] = token.string # egeszsoros komment
                             cikluskezdet = False
                         else:
-                            comments[f"in{token.start[0]}"] = token.string
-                            print("K-in", token.string)
+                            comments[f"in{token.start[0]}"] = token.string # kodot tartalmazo sorban komment
                             cikluskezdet = False
                     else:
-                        print("*", token.string)
                         if token.string == "\n":
-                            print("ujsor")
                             cikluskezdet = True
                         else:
                             cikluskezdet = False
 
-            print("Comments", comments)
-
-            # itt kezdődik az if cuccok nezese
-            self.visit(tree)
+            self.visit(tree)  # itt kezdődik az if cuccok nezese
             if len(self.results.keys()) == 0:
                 return
 
@@ -246,35 +232,27 @@ class Transformer(ast.NodeTransformer):
 #
 #             i += 1
 
-
-
-        with open(file, "w", encoding='utf-8-sig') as out:
+        with open(file, "w", encoding='utf-8') as out:
             i = 0
             # fileba iratas
+            print("++++++++++", [i for i in self.results.keys()])
             while i < len(src_lines):
                 if i in self.results.keys():
                     indent = indentation(src_lines[i])
                     # print("indent: ", indent)
-                    res = ast.unparse(self.results[i][0]).splitlines()
-                    if self.preserve_comments:
-                        flag = False
-                        for key in comments.keys():
-                            if key in range(i, i+self.results[i][1] -1):
-                                if not flag:
-                                    out.write(indent * " " + "# PRESERVED COMMENTS: \n")
-                                flag = True
-                                out.write((indent+1) * " " + comments[key] + "\n")
+                    res = self.results[i][0]
+                    # print("RES", res)
                     for newLine in res:
-                        # print("NL: ",indent * " " + newLine)
-                        out.write(indent * " " + newLine + "\n")
+                        # print("NL", indent * " " + newLine, end="", file=out)
+                        out.write(indent * " " + newLine)
                     i += self.results[i][1] -1
                 else:
-                    # print("el: ", src_lines[i], end="")
+                    # print("EL: ", src_lines[i], end="", file=out)
                     out.write(src_lines[i])
                 i += 1
 
         # Checking for SyntaxErrors in the transformed file
-        with open(file, "r", encoding='utf-8-sig') as f:
+        with open(file, "r", encoding='utf-8') as f:
             new_lines = f.read()
             f.seek(0)
             newlines = f.readlines()
@@ -283,7 +261,8 @@ class Transformer(ast.NodeTransformer):
             ast.parse(new_lines)
         except SyntaxError as err:
             self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
-            with open(file, "w", encoding='utf-8-sig') as f:
+            print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
+            with open(file, "w", encoding='utf-8') as f:
                 f.writelines(src_lines)
             return
 
@@ -295,7 +274,7 @@ class Transformer(ast.NodeTransformer):
             diff = difflib.context_diff(src_lines, newlines, fromfile= str(file), tofile= str(file))
             diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
 
-            with open(diffile, 'w', encoding='utf-8-sig') as f:
+            with open(diffile, 'w', encoding='utf-8') as f:
                 f.writelines(diff)
 
     def nemtommi(self, src_lines):
