@@ -74,7 +74,6 @@ class Transformer(ast.NodeTransformer):
         self.visit_recursively = config["MAIN"].getboolean("VisitBodiesRecursively")
         self.preserve_comments = config["MAIN"].getboolean("PreserveComments")
         self.logger = OutputHandler("transformer.log") if config["OUTPUT"].getboolean("AllowTransformerLogs") else None
-        #self.differ = OutputHandler("diffs.diff") if  else None
         self.generate_diffs = config["OUTPUT"].getboolean("GenerateDiffs")
         self.visited_nodes = 0
         self.code = None
@@ -87,47 +86,34 @@ class Transformer(ast.NodeTransformer):
         global comments, ast_sorok
         ast_sorok = 0
         old_sorok = 0
-        #self.log(f"Transforming If-node at ({node.test.lineno})")
         self.visited_nodes += 1
-        # print("node", ast.unparse(node))  # A NODE MAGA A REGI KOD csak unparseolni kell már nincs benne komment
-        self.analyzer.visit(node)  # szetszedi a regi kodot darabokra
+        self.analyzer.visit(node)  # szetszedi a regi kodot ast darabokra , A node ast objektum
         if node in self.analyzer.subjects.keys():  # ha IF objektum benne van az analizalhato objektumok közt ??
-            print("--------------")
-            kezdet = node.test.lineno
-            print("kezdet", kezdet) # ITT KEZDŐDIK AZ ATALAKITAS sor
-            ast_sorok += kezdet
-            old_sorok += kezdet
-            # self.analyzer.
-            subjectNode = self.analyzer.subjects[node] # a változóneve,--> astra alakitva maga az érték
-            _cases = []  # if elif else , ilyesmik gyujtese
+            ast_sorok += node.test.lineno # átalakítás kezdő sorszáma , az eddigi nem transzformalt sorok szama + 1
+            old_sorok += node.test.lineno
+            subjectNode = self.analyzer.subjects[node] # ifben a változó neve,--> astra alakitva a változó érték
+            _cases = []  # if ágak gyűjtőhelye --> if elif else
             res = []
             for branch in self.analyzer.branches[node]:
-                print(branch.flat)
                 if branch.flat:
-                    print("FLATTT")
-                    # print(f"TRANSFORMER: BRANCH IS FLATTENED")
                     for subBranch in branch.flat:
-
-                            pattern = self.analyzer.patterns[subBranch]
-                            transformed_branch = ast.match_case(pattern = pattern.transform(subjectNode),
-                                                                guard = pattern.guard(subjectNode),
-                                                                body = subBranch.body)
-                            try:
-                                print(ast.parse(ast.unparse(transformed_branch)))
-                                _cases.append(transformed_branch)
-                            except SyntaxError:
-                                return None
+                        pattern = self.analyzer.patterns[subBranch]
+                        transformed_branch = ast.match_case(pattern = pattern.transform(subjectNode),
+                                                            guard = pattern.guard(subjectNode),
+                                                            body = subBranch.body)
+                        try:
+                            print(ast.parse(ast.unparse(transformed_branch)))
+                            _cases.append(transformed_branch)
+                        except SyntaxError:
+                            return None
                 else:
                     _pattern = ast.MatchAs() if branch.test is None else self.analyzer.patterns[branch].transform(subjectNode)
                     _guard = None if branch.test is None else self.analyzer.patterns[branch].guard(subjectNode)
-                    temp = ast.Module(body = branch.body, type_ignores=[])
+                    temp = ast.Module(body=branch.body, type_ignores=[])
                     if self.visit_recursively:
                         self.generic_visit(temp)
                     transformed_branch = ast.match_case(pattern = _pattern, guard = _guard, body = temp.body)
                     _cases.append(transformed_branch)
-                    # print("_", ast.unparse(branch)if transformed_branch is not None else "---")
-                    # tra = ast.unparse(transformed_branch)
-                    body_sorok = ast.unparse(temp)
                     uj = ast.unparse(transformed_branch)
                     old = ast.unparse(branch.body)
                     def sorellenor(sor, rekurziv_akcio):
@@ -144,7 +130,6 @@ class Transformer(ast.NodeTransformer):
                             ast_sorok += 1
                             return sorellenor(sor, rekurziv_akcio=rekurziv_akcio)
                         else:
-
                             return sor # semilyen komment nem volt
 
                     for sor in uj.splitlines():
@@ -154,13 +139,9 @@ class Transformer(ast.NodeTransformer):
 
                     old_sorok += old.count("\n") +2
 
-            # print("_cases", len(_cases))
-            ast_atalakitott = ast.Match(subject = subjectNode, cases = _cases) # mar atalakitott cucc
-            # print(type(ast_atalakitott))
+            ast_atalakitott = ast.Match(subject = subjectNode, cases=_cases) # mar atalakitott cucc
             res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
-            # print("UJres ", res)
             self.results[node.test.lineno-1] = res
-            print("RESSSS", type(res), res)
             result = ast.Match(subject=subjectNode, cases=_cases)
             print("R", ast.unparse(result))
             return result
