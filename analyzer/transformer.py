@@ -47,6 +47,25 @@ def indentation(s, tabsize=4):
     sx = s.expandtabs(tabsize)
     return 0 if sx.isspace() else len(sx) - len(sx.lstrip())
 
+
+def does_not_have_return_continue_break_yield(code):
+    """
+    Returns True if the given code contains any of the following statements:
+    - return
+    - continue
+    - break
+    - yield
+    """
+    tree = ast.parse(code)
+    print(code)
+    print(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Return, ast.Continue, ast.Break, ast.Yield)):
+            print("@@TARTALMAZ")
+            return False
+    print("@@NEM TARTALMAZ")
+    return True
+
 class Transformer(ast.NodeTransformer):
 
     def __init__(self):
@@ -80,15 +99,24 @@ class Transformer(ast.NodeTransformer):
             old_sorok += kezdet
             # self.analyzer.
             subjectNode = self.analyzer.subjects[node] # a változóneve,--> astra alakitva maga az érték
-            _cases = [] # if elif else , ilyesmik gyujtese
+            _cases = []  # if elif else , ilyesmik gyujtese
             res = []
             for branch in self.analyzer.branches[node]:
+                print(branch.flat)
                 if branch.flat:
+                    print("FLATTT")
                     # print(f"TRANSFORMER: BRANCH IS FLATTENED")
                     for subBranch in branch.flat:
-                        pattern = self.analyzer.patterns[subBranch]
-                        transformed_branch = ast.match_case(pattern = pattern.transform(subjectNode), guard = pattern.guard(subjectNode), body = subBranch.body)
-                        _cases.append(transformed_branch)
+
+                            pattern = self.analyzer.patterns[subBranch]
+                            transformed_branch = ast.match_case(pattern = pattern.transform(subjectNode),
+                                                                guard = pattern.guard(subjectNode),
+                                                                body = subBranch.body)
+                            try:
+                                print(ast.parse(ast.unparse(transformed_branch)))
+                                _cases.append(transformed_branch)
+                            except SyntaxError:
+                                return None
                 else:
                     _pattern = ast.MatchAs() if branch.test is None else self.analyzer.patterns[branch].transform(subjectNode)
                     _guard = None if branch.test is None else self.analyzer.patterns[branch].guard(subjectNode)
@@ -132,8 +160,10 @@ class Transformer(ast.NodeTransformer):
             res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
             # print("UJres ", res)
             self.results[node.test.lineno-1] = res
-
-            return res
+            print("RESSSS", type(res), res)
+            result = ast.Match(subject=subjectNode, cases=_cases)
+            print("R", ast.unparse(result))
+            return result
         elif self.visit_recursively:
             curr_node = node
             while isinstance(curr_node, ast.If):
@@ -252,30 +282,30 @@ class Transformer(ast.NodeTransformer):
                 i += 1
 
         # Checking for SyntaxErrors in the transformed file
-        with open(file, "r", encoding='utf-8') as f:
-            new_lines = f.read()
-            f.seek(0)
-            newlines = f.readlines()
+        # with open(file, "r", encoding='utf-8') as f:
+        #     new_lines = f.read()
+        #     f.seek(0)
+        #     newlines = f.readlines()
+        #
+        # try:
+        #     ast.parse(new_lines)
+        # except SyntaxError as err:
+        #     self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
+        #     print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
+        #     with open(file, "w", encoding='utf-8') as f:
+        #         f.writelines(src_lines)
+        #     return
 
-        try:
-            ast.parse(new_lines)
-        except SyntaxError as err:
-            self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
-            print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
-            with open(file, "w", encoding='utf-8') as f:
-                f.writelines(src_lines)
-            return
 
-
-        if self.generate_diffs and OutputHandler.OUTPUT_FOLDER:
-            import os
-            from pathlib import Path
-
-            diff = difflib.context_diff(src_lines, newlines, fromfile= str(file), tofile= str(file))
-            diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
-
-            with open(diffile, 'w', encoding='utf-8') as f:
-                f.writelines(diff)
+        # if self.generate_diffs and OutputHandler.OUTPUT_FOLDER:
+        #     import os
+        #     from pathlib import Path
+        #
+        #     diff = difflib.context_diff(src_lines, newlines, fromfile= str(file), tofile= str(file))
+        #     diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
+        #
+        #     with open(diffile, 'w', encoding='utf-8') as f:
+        #         f.writelines(diff)
 
     def nemtommi(self, src_lines):
         i = 0
