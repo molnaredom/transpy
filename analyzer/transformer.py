@@ -94,7 +94,7 @@ class Transformer(ast.NodeTransformer):
             subjectNode = self.analyzer.subjects[node] # ifben a változó neve,--> astra alakitva a változó érték
             _cases = []  # if ágak gyűjtőhelye --> if elif else
             res = []
-            for branch in self.analyzer.branches[node]:
+            for hanyadik_barnch,branch in enumerate(self.analyzer.branches[node]):
                 if branch.flat:
                     for subBranch in branch.flat:
                         pattern = self.analyzer.patterns[subBranch]
@@ -116,24 +116,28 @@ class Transformer(ast.NodeTransformer):
                     _cases.append(transformed_branch)
                     uj = ast.unparse(transformed_branch)
                     old = ast.unparse(branch.body)
-                    def sorellenor(sor, rekurziv_akcio):
+
+                    def utolsosor():
+                        print(len(self.analyzer.branches[node])-1, hanyadik_barnch,len(uj.splitlines())-1 , sorszam)
+                        if len(self.analyzer.branches[node])-1 == hanyadik_barnch: # utolso if node
+                            if len(uj.splitlines())-1 == sorszam:
+                                print("UTOLSO SOR = ", sor)
+                                return True
+                        return None
+
+                    def sorellenor(sor):
                         global ast_sorok
                         if f"in{ast_sorok}" in comments:
-                            sor += comments[f"in{ast_sorok}"]
-                            if rekurziv_akcio:
-                                sor += "\n"+"\n".join(rekurziv_akcio)
-                            return sor
-                        elif f"out{ast_sorok}" in comments:
-                            # sor = ""
-                            print("R", rekurziv_akcio)
-                            rekurziv_akcio.append(comments[f"out{ast_sorok}"])
+                            sor += "  " + comments[f"in{ast_sorok}"]
+                        if f"out{ast_sorok+1}" in comments and not utolsosor():
+                            sor += "\n    "+comments[f"out{ast_sorok+1}"]
                             ast_sorok += 1
-                            return sorellenor(sor, rekurziv_akcio=rekurziv_akcio)
-                        else:
-                            return sor # semilyen komment nem volt
+                            return sorellenor(sor)
+                        return sor # semmilyen komment nem volt
 
-                    for sor in uj.splitlines():
-                        ujsor = sorellenor(sor, [])
+                    for sorszam, sor in enumerate(uj.splitlines()):
+                        print(len(uj.splitlines())-1 , sorszam,ast_sorok, sor)
+                        ujsor = sorellenor(sor)
                         res.append(" "*4 +ujsor+"\n")
                         ast_sorok += 1
 
@@ -143,7 +147,7 @@ class Transformer(ast.NodeTransformer):
             res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
             self.results[node.test.lineno-1] = res
             result = ast.Match(subject=subjectNode, cases=_cases)
-            print("R", ast.unparse(result))
+            print("result", ast.unparse(result))
             return result
         elif self.visit_recursively:
             curr_node = node
@@ -197,6 +201,7 @@ class Transformer(ast.NodeTransformer):
                             cikluskezdet = True
                         else:
                             cikluskezdet = False
+                print(comments)
 
             self.visit(tree)  # itt kezdődik az if cuccok nezese
             if len(self.results.keys()) == 0:
@@ -254,7 +259,7 @@ class Transformer(ast.NodeTransformer):
                     res = self.results[i][0]
                     # print("RES", res)
                     for newLine in res:
-                        # print("NL", indent * " " + newLine, end="", file=out)
+                        print("NL", indent * " " + newLine, end="")
                         out.write(indent * " " + newLine)
                     i += self.results[i][1] -1
                 else:
