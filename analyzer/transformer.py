@@ -259,8 +259,11 @@ class Transformer(ast.NodeTransformer):
                     res = self.results[i][0]
                     # print("RES", res)
                     for newLine in res:
-                        print("NL", indent * " " + newLine, end="")
-                        out.write(indent * " " + newLine)
+                        # print("NL", indent * " " + newLine, end="")
+
+                        # out.write(indent * " " + newLine)
+                        print("....", [indent * " " + n for n in newLine.split("\n")])
+                        out.write("\n".join([indent * " " + n for n in newLine.split("\n")]))
                     i += self.results[i][1] -1
                 else:
                     # print("EL: ", src_lines[i], end="", file=out)
