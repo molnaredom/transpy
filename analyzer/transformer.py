@@ -143,10 +143,10 @@ class Transformer(ast.NodeTransformer):
                     sor += "  " + comments[f"in{ast_sorok}"]
                 if f"out{ast_sorok + 1}" in comments and not utolsosor():
                     elozo_sor_indentalasa = count_spaces(sor.splitlines()[0])
-                    sor += "\n" + " " * elozo_sor_indentalasa + comments[f"out{ast_sorok + 1}"]
+                    sor += "\n" + " "*4 +" " * elozo_sor_indentalasa + comments[f"out{ast_sorok + 1}"]
                     ast_sorok += 1
                     return sorellenor(sor)
-                return "\n".join([" "*4+ 4 + i for i in sor.splitlines()]) # minden sorba 4 space a match miatt
+                return "\n".join([" "*4 + i for i in sor.splitlines()]) # minden sorba 4 space a match miatt
                     # *4 indentalas szama , +4 mert mindig bentebb kerul 1 sorral ami ciklusobn belul van
 
             ast_atalakitott = ast.Match(subject = subjectNode, cases=_cases) # mar atalakitott cucc
