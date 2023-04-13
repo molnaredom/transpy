@@ -84,17 +84,13 @@ class Transformer(ast.NodeTransformer):
 
     def visit_If(self, node):
         global comments, ast_sorok
-        ast_sorok = 0
-        old_sorok = 0
         self.visited_nodes += 1
         self.analyzer.visit(node)  # szetszedi a regi kodot ast darabokra , A node ast objektum
         if node in self.analyzer.subjects.keys():  # ha IF objektum benne van az analizalhato objektumok közt ??
-            ast_sorok += node.test.lineno # átalakítás kezdő sorszáma , az eddigi nem transzformalt sorok szama + 1
-            old_sorok += node.test.lineno
             subjectNode = self.analyzer.subjects[node] # ifben a változó neve,--> astra alakitva a változó érték
             _cases = []  # if ágak gyűjtőhelye --> if elif else
             res = []
-            for hanyadik_barnch,branch in enumerate(self.analyzer.branches[node]):
+            for hanyadik_barnch, branch in enumerate(self.analyzer.branches[node]):
                 if branch.flat:
                     for subBranch in branch.flat:
                         pattern = self.analyzer.patterns[subBranch]
@@ -102,7 +98,7 @@ class Transformer(ast.NodeTransformer):
                                                             guard = pattern.guard(subjectNode),
                                                             body = subBranch.body)
                         try:
-                            print(ast.parse(ast.unparse(transformed_branch)))
+                            # print(ast.parse(ast.unparse(transformed_branch)))
                             _cases.append(transformed_branch)
                         except SyntaxError:
                             return None
@@ -114,40 +110,38 @@ class Transformer(ast.NodeTransformer):
                         self.generic_visit(temp)
                     transformed_branch = ast.match_case(pattern = _pattern, guard = _guard, body = temp.body)
                     _cases.append(transformed_branch)
-                    uj = ast.unparse(transformed_branch)
-                    old = ast.unparse(branch.body)
 
-                    def utolsosor():
-                        print(len(self.analyzer.branches[node])-1, hanyadik_barnch,len(uj.splitlines())-1 , sorszam)
-                        if len(self.analyzer.branches[node])-1 == hanyadik_barnch: # utolso if node
-                            if len(uj.splitlines())-1 == sorszam:
-                                print("UTOLSO SOR = ", sor)
-                                return True
-                        return None
+            def utolsosor():
+                if len(self.analyzer.branches[node]) - 1 == hanyadik_barnch:  # utolso if node
+                    if len(unparsed_ast.splitlines()) - 1 == sorszam:
+                        return True
+                return None
 
-                    def sorellenor(sor):
-                        global ast_sorok
-                        if f"in{ast_sorok}" in comments:
-                            sor += "  " + comments[f"in{ast_sorok}"]
-                        if f"out{ast_sorok+1}" in comments and not utolsosor():
-                            sor += "\n    "+comments[f"out{ast_sorok+1}"]
-                            ast_sorok += 1
-                            return sorellenor(sor)
-                        return sor # semmilyen komment nem volt
-
-                    for sorszam, sor in enumerate(uj.splitlines()):
-                        print(len(uj.splitlines())-1 , sorszam,ast_sorok, sor)
-                        ujsor = sorellenor(sor)
-                        res.append(" "*4 +ujsor+"\n")
-                        ast_sorok += 1
-
-                    old_sorok += old.count("\n") +2
+            def sorellenor(sor):
+                global ast_sorok
+                if f"in{ast_sorok}" in comments:
+                    sor += "  " + comments[f"in{ast_sorok}"]
+                if f"out{ast_sorok + 1}" in comments and not utolsosor():
+                    sor += "\n    " + comments[f"out{ast_sorok + 1}"]
+                    ast_sorok += 1
+                    return sorellenor(sor)
+                return sor  # semmilyen komment nem volt
 
             ast_atalakitott = ast.Match(subject = subjectNode, cases=_cases) # mar atalakitott cucc
-            res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
+            unparsed_ast = ast.unparse(ast_atalakitott)
+            # print("ÉÉÉÉÉ", unparsed_ast)
+            ast_sorok = node.test.lineno
+            for sorszam, sor in enumerate(unparsed_ast.splitlines()):
+                ujsor = sorellenor(sor)
+                # print("Ú", ujsor)
+                res.append(" " * 4 + ujsor + "\n")
+                ast_sorok += 1
+
+
+            # res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
             self.results[node.test.lineno-1] = res
             result = ast.Match(subject=subjectNode, cases=_cases)
-            print("result", ast.unparse(result))
+            # print("result", ast.unparse(result))
             return result
         elif self.visit_recursively:
             curr_node = node
@@ -262,7 +256,7 @@ class Transformer(ast.NodeTransformer):
                         # print("NL", indent * " " + newLine, end="")
 
                         # out.write(indent * " " + newLine)
-                        print("....", [indent * " " + n for n in newLine.split("\n")])
+                        # print("....", [indent * " " + n for n in newLine.split("\n")])
                         out.write("\n".join([indent * " " + n for n in newLine.split("\n")]))
                     i += self.results[i][1] -1
                 else:
