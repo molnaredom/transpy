@@ -157,7 +157,8 @@ class Transformer(ast.NodeTransformer):
                 ujsor = sorellenor(sor)
                 print("Ú", ujsor)
                 res.append(ujsor + "\n")
-                ast_sorok += 1
+                if "match" not in sor:
+                    ast_sorok += 1
 
             # res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
             # print("res")
