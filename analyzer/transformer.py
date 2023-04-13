@@ -48,6 +48,26 @@ def indentation(s, tabsize=4):
     return 0 if sx.isspace() else len(sx) - len(sx.lstrip())
 
 
+def count_spaces(code):
+    """
+    Counts the number of spaces before the first non-space character in the first line of code.
+
+    Parameters:
+    code (str): The code to count spaces in.
+
+    Returns:
+    int: The number of spaces before the first non-space character in the first line of code.
+    """
+    count = 0
+    for char in code:
+        if char == ' ':
+            count += 1
+        elif char == '\n':
+            return count
+        else:
+            return count
+    return count
+
 def does_not_have_return_continue_break_yield(code):
     """
     Returns True if the given code contains any of the following statements:
@@ -122,26 +142,30 @@ class Transformer(ast.NodeTransformer):
                 if f"in{ast_sorok}" in comments:
                     sor += "  " + comments[f"in{ast_sorok}"]
                 if f"out{ast_sorok + 1}" in comments and not utolsosor():
-                    sor += "\n    " + comments[f"out{ast_sorok + 1}"]
+                    elozo_sor_indentalasa = count_spaces(sor.splitlines()[0])
+                    sor += "\n" + " " * elozo_sor_indentalasa + comments[f"out{ast_sorok + 1}"]
                     ast_sorok += 1
                     return sorellenor(sor)
-                return sor  # semmilyen komment nem volt
+                return "\n".join([" "*4+ 4 + i for i in sor.splitlines()]) # minden sorba 4 space a match miatt
+                    # *4 indentalas szama , +4 mert mindig bentebb kerul 1 sorral ami ciklusobn belul van
 
             ast_atalakitott = ast.Match(subject = subjectNode, cases=_cases) # mar atalakitott cucc
             unparsed_ast = ast.unparse(ast_atalakitott)
-            # print("ÉÉÉÉÉ", unparsed_ast)
+            print("ÉÉÉÉÉ\n", unparsed_ast)
             ast_sorok = node.test.lineno
             for sorszam, sor in enumerate(unparsed_ast.splitlines()):
                 ujsor = sorellenor(sor)
-                # print("Ú", ujsor)
-                res.append(" " * 4 + ujsor + "\n")
+                print("Ú", ujsor)
+                res.append(ujsor + "\n")
                 ast_sorok += 1
 
-
             # res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
+            # print("res")
+            # [print(i) for i in res]
+
             self.results[node.test.lineno-1] = res
             result = ast.Match(subject=subjectNode, cases=_cases)
-            # print("result", ast.unparse(result))
+            print("result", ast.unparse(result))
             return result
         elif self.visit_recursively:
             curr_node = node
@@ -242,22 +266,24 @@ class Transformer(ast.NodeTransformer):
 #
 #             i += 1
 
+
         with open(file, "w", encoding='utf-8') as out:
             i = 0
             # fileba iratas
-            print("++++++++++", [i for i in self.results.keys()])
+            [print("a",i, end="") for i in src_lines]
             while i < len(src_lines):
                 if i in self.results.keys():
                     indent = indentation(src_lines[i])
+                    print("INDENT", indent)
                     # print("indent: ", indent)
                     res = self.results[i][0]
                     # print("RES", res)
                     for newLine in res:
                         # print("NL", indent * " " + newLine, end="")
 
-                        # out.write(indent * " " + newLine)
+                        out.write(4 * " " + newLine)
                         # print("....", [indent * " " + n for n in newLine.split("\n")])
-                        out.write("\n".join([indent * " " + n for n in newLine.split("\n")]))
+                        # out.write("\n".join([ n for n in newLine.split("\n")]))
                     i += self.results[i][1] -1
                 else:
                     # print("EL: ", src_lines[i], end="", file=out)
