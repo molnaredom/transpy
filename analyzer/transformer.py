@@ -1,4 +1,6 @@
 import ast
+import subprocess
+
 from analyzer import Analyzer, config
 from .utils import OutputHandler
 from functools import lru_cache
@@ -234,39 +236,8 @@ class Transformer(ast.NodeTransformer):
 
         self.nemtommi(src_lines)
 
-        # kerdes felteves
-        i = 0
-#         while i < len(src_lines):
-#             if i in self.results.keys():
-#
-#                 indent = indentation(src_lines[i])
-#                 res = ast.unparse(self.results[i][0]).splitlines()
-#                 print(f"""
-# ------------------------------------------------------------------------------------------------------------------
-#                                 #       | original | transpy
-#                                 sorszám |{self.results[i][1]}       |  {len(res)}
-# ------------------------------------------------------------------------------------------------------------------
-#                        """)
-#                 if self.preserve_comments:
-#                     flag = False
-#                     for key in comments.keys():
-#                         if key in range(i, i + self.results[i][1] - 1):
-#                             if not flag:
-#                                 print(f"{i}[#]: ", (indent + 1) * " " + comments[key])
-#                             flag = True
-#                 for l,newLine in enumerate(res): # KICSERELENDO SOROK
-#                     print(f"{i+l}[+]: ", indent * " " + newLine)
-#                 print("- "*50)
-#                 for _ in range(self.results[i][1]): # TORLENDO AOROK
-#                     print(f"{i}[-]: ", src_lines[i], end="")
-#                     i+=1
-#                 print("|______________________________________________________________|")
-#             else:
-#                 print("OLD: ", src_lines[i], end="")
-#             # a = input("Megtartanád?")
-#
-#             i += 1
-
+        subprocess.Popen(f"python3.11 -m black {file}",
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
         with open(file, "w", encoding='utf-8') as out:
             i = 0
@@ -292,30 +263,30 @@ class Transformer(ast.NodeTransformer):
                 i += 1
 
         # Checking for SyntaxErrors in the transformed file
-        # with open(file, "r", encoding='utf-8') as f:
-        #     new_lines = f.read()
-        #     f.seek(0)
-        #     newlines = f.readlines()
-        #
-        # try:
-        #     ast.parse(new_lines)
-        # except SyntaxError as err:
-        #     self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
-        #     print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
-        #     with open(file, "w", encoding='utf-8') as f:
-        #         f.writelines(src_lines)
-        #     return
+        with open(file, "r", encoding='utf-8') as f:
+            new_lines = f.read()
+            f.seek(0)
+            newlines = f.readlines()
+
+        try:
+            ast.parse(new_lines)
+        except SyntaxError as err:
+            self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
+            print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
+            with open(file, "w", encoding='utf-8') as f:
+                f.writelines(src_lines)
+            return
 
 
-        # if self.generate_diffs and OutputHandler.OUTPUT_FOLDER:
-        #     import os
-        #     from pathlib import Path
-        #
-        #     diff = difflib.context_diff(src_lines, newlines, fromfile= str(file), tofile= str(file))
-        #     diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
-        #
-        #     with open(diffile, 'w', encoding='utf-8') as f:
-        #         f.writelines(diff)
+        if self.generate_diffs and OutputHandler.OUTPUT_FOLDER:
+            import os
+            from pathlib import Path
+
+            diff = difflib.context_diff(src_lines, newlines, fromfile= str(file), tofile= str(file))
+            diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
+
+            with open(diffile, 'w', encoding='utf-8') as f:
+                f.writelines(diff)
 
     def nemtommi(self, src_lines):
         i = 0
