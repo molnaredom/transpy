@@ -1,11 +1,14 @@
 import ast
+import io
 import subprocess
+import tokenize
 
 from analyzer import Analyzer, config
 from .utils import OutputHandler
 from functools import lru_cache
 import difflib
 from tokenize import generate_tokens
+import astor
 
 
 @lru_cache(maxsize=128)
@@ -93,6 +96,9 @@ def does_not_have_return_continue_break_yield(code):
     return True
 
 
+from textwrap import dedent
+
+
 class Transformer(ast.NodeTransformer):
 
     def __init__(self):
@@ -104,6 +110,7 @@ class Transformer(ast.NodeTransformer):
         self.generate_diffs = config["OUTPUT"].getboolean("GenerateDiffs")
         self.visited_nodes = 0
         self.code = None
+        self.src_lines = None
 
     def log(self, text):
         if self.logger is not None:
@@ -153,28 +160,67 @@ class Transformer(ast.NodeTransformer):
                     elozo_sor_indentalasa = count_spaces(sor.splitlines()[0])
                     sor += "\n" + " " * 4 + " " * elozo_sor_indentalasa + comments[f"out{ast_sorok + 1}"]
                     ast_sorok += 1
-                    return sorellenor(sor)
+                    return sorellenor(sor, )
                 return sor  # minden sorba 4 space a match miatt
                 # *4 indentalas szama , +4 mert mindig bentebb kerul 1 sorral ami ciklusobn belul van
 
-            ast_atalakitott = ast.Match(subject=subjectNode, cases=_cases)  # mar atalakitott cucc
-            unparsed_ast = ast.unparse(ast_atalakitott)
-            print("ÉÉÉÉÉ\n", unparsed_ast)
-            ast_sorok = node.test.lineno
-            for sorszam, sor in enumerate(unparsed_ast.splitlines()):
-                ujsor = sorellenor(sor)
-                # print("Ú", ujsor)
-                res.append(ujsor + "\n")
-                if "match" not in sor:
-                    ast_sorok += 1
+            def sorszamkulonbseg(i_from, i_to):
+                eredeti_kodsorok = "".join(self.src_lines[i_from:i_to])
+                if "else" in eredeti_kodsorok:
+                    return 1
+                eredeti_kodsorok = eredeti_kodsorok.replace("elif", "if")
+                # print(f"-------------------E <<{i_to - i_from}>>-----------------------")
+                try:
+                    # print(f"{eredeti_kodsorok} --- E1 ")
+                    ast_sor = ast.unparse(ast.parse(dedent(eredeti_kodsorok)))
+                    # print(ast_sor, " --- A1")
+                    return i_to - i_from
+                except (IndentationError, SyntaxError):
+                    try:
+                        e_indent = count_spaces(eredeti_kodsorok)
+                        uj_e_kod = dedent(eredeti_kodsorok + (e_indent + 4) * " " + "pass")
+                        # print(f"{uj_e_kod} --- E2 ")
+                        ast_sor = ast.unparse(ast.parse(uj_e_kod))
+                        # print(ast_sor, "--- A2")
+                        return i_to - i_from
+                    except (IndentationError, SyntaxError):
+                        # print("+1 sor vétele")
+                        if i_to - i_from > 10:
+                            raise Exception
+                        return sorszamkulonbseg(i_from, i_to + 1)
 
-            # res.insert(0, ast.unparse(ast_atalakitott).splitlines()[0] + "\n")
-            # print("res")
-            # [print(i) for i in res]
+            ast_atalakitott = ast.Match(subject=subjectNode, cases=_cases)  # mar atalakitott cucc
+
+            unparsed_ast = ast.unparse(ast_atalakitott)
+
+            # print("ÉÉÉÉÉ\n", unparsed_ast)
+            ast_sorok = node.test.lineno - 1
+            print("ast", ast_sorok)
+
+            for sorszam, sor in enumerate(unparsed_ast.splitlines(), 1):
+                sszk = sorszamkulonbseg(i_from=ast_sorok-1, i_to=ast_sorok)
+                print("sszk", sszk)
+                ujsor = sorellenor(sor)
+                if sszk > 1:
+                    while sszk != 1:
+                        sszk -= 1
+                        ast_sorok += 1
+                        komment = sorellenor("")
+                        print("K", komment)
+                        ujsor += "   " + komment
+                        print(">>>>>", ast_sorok, komment)
+
+                res.append(ujsor + "\n")
+                print("=1", ujsor)
+                ast_sorok += 1
 
             self.results[node.test.lineno - 1] = res
             result = ast.Match(subject=subjectNode, cases=_cases)
-            print("result", ast.unparse(result))
+            print("R", result)
+            # transformed_code_str = astor.to_source(result)
+            # print("TR", result)
+
+            # print("result", ast.unparse(result))
             return result
         elif self.visit_recursively:
             curr_node = node
@@ -211,32 +257,59 @@ class Transformer(ast.NodeTransformer):
             global comments
             comments = None
             self.preserved_comments(src)
-            self.visit(tree)
+            src.seek(0)
+            self.src_lines = tuple(src.readlines())
+            src.seek(0)
+            # print("SSS",src.read())
 
+            parsed_code = self.visit(tree)
+
+            # Use the `ast.fix_missing_locations()` function to add line information to the parsed AST
+            ast.fix_missing_locations(parsed_code)
+
+            # Convert the parsed AST back to code while preserving indentation
+            transformed_code_str = ast.unparse(parsed_code)
+
+            # Extract comments from the original code
+            tokens = tokenize.generate_tokens(io.StringIO(src.read()).readline)
+            comments = [t for t in tokens if t.type == tokenize.COMMENT]
+
+            # Insert comments into the transformed code
+            transformed_lines = transformed_code_str.splitlines()
+            for comment in comments:
+                line_num = comment.start[0] - 1  # Convert 1-based line numbers to 0-based
+                comment_str = comment.string.strip()
+                transformed_lines.insert(line_num, comment_str)
+
+            # Join the transformed lines into a single string
+            transformed_code_str = "\n".join(transformed_lines)
+
+            # Print the transformed code
+            print("MMM", transformed_code_str)
+
+            # print(ast.unparse(v))
             if len(self.results.keys()) == 0:
                 return
-            src.seek(0)
-            src_lines = tuple(src.readlines())
 
-        print(self.results.keys())
+        print("PPP", self.results.keys())
 
-        self.nemtommi(src_lines)
+        self.nemtommi()
 
         with open(file, "w", encoding='utf-8') as out:
-            print("FFÁÁJL", file)
+            # print("FFÁÁJL", file)
             i = 0
-            while i < len(src_lines):
+            while i < len(self.src_lines):
                 if i in self.results.keys():
-                    indent = indentation(src_lines[i])
+                    indent = indentation(self.src_lines[i])
                     res = self.results[i][0]
                     for newLine in res:
-                        print(indent)
+                        # print(indent)
                         out.write(indent * " " + newLine)
                     i += self.results[i][1] - 1
                 else:
-                    out.write(src_lines[i])
+                    out.write(self.src_lines[i])
                 i += 1
-        subprocess.run(["python3.11", "-m", "black", file])
+        # subprocess.run(["python3.11", "-m", "black", file])
 
         # print(k.stdout)
         # print(k.stderr)
@@ -285,13 +358,14 @@ class Transformer(ast.NodeTransformer):
                         cikluskezdet = True
                     else:
                         cikluskezdet = False
+            print(comments)
 
-    def nemtommi(self, src_lines):
+    def nemtommi(self):
         i = 0
-        while i < len(src_lines):
+        while i < len(self.src_lines):
             if i in self.results.keys():
                 # print(f"LINE {i} IS IN RESULTS")
-                if_length, offset = count_actual_lines(src_lines, i)
+                if_length, offset = count_actual_lines(self.src_lines, i)
                 self.results[i] = (self.results[i], if_length)
                 if offset != 0:
                     # print(f" AT LINE ({i}) OFFSET IS: {offset}")
