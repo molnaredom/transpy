@@ -98,16 +98,7 @@ class Transformer(ast.NodeTransformer):
     def visit_If(self, node):
         global comments, src_rownum, multiline_rownum
 
-        def is_last_row() -> bool:
-            """
-            Returns: A boolean value representing whether the current row and node are the last in their
-            respective structures. If they are, returns True. Otherwise, returns None.
-            """
-            if len(self.analyzer.branches[node]) - 1 == branch_num:  # last if node
-                if len(unparsed_ast.splitlines()) - 1 == uast_rownum:
-                    return True
-
-        def comment_nl_inserter(row: str, add_nl: bool = True) -> str:
+        def comment_nl_inserter(row: str, last_row: bool, add_nl: bool = True) -> str:
             """
                 row: a string representing a single row of unparsed ast code without comments or newlines.
                 add_nl: a boolean value indicating whether a newline character should be added to row or not.
@@ -123,21 +114,21 @@ class Transformer(ast.NodeTransformer):
             global src_rownum, multiline_rownum
             if f"in{src_rownum}" in comments:
                 row += "  " + comments[f"in{src_rownum}"]
-            if f"out{src_rownum + 1}" in comments and not is_last_row():
+            if f"out{src_rownum + 1}" in comments and not last_row:
                 if add_nl:
                     row += "\n" + " " * 4 + comments[f"out{src_rownum + 1}"]
                 else:
                     row += "  " + comments[f"out{src_rownum + 1}"]
                     multiline_rownum -= 1
                 src_rownum += 1
-                return comment_nl_inserter(row, add_nl=add_nl)
-            if f"nl{src_rownum + 1}" in comments and not is_last_row():
+                return comment_nl_inserter(row, last_row=last_row, add_nl=add_nl)
+            if f"nl{src_rownum + 1}" in comments and not last_row:
                 if add_nl:
                     row += "\n"
                 else:
                     multiline_rownum -= 1
                 src_rownum += 1
-                return comment_nl_inserter(row, add_nl=add_nl)
+                return comment_nl_inserter(row, last_row=last_row, add_nl=add_nl)
             return row
 
         def get_multiline_rownum(i_from: int, i_to: int) -> int:
@@ -166,12 +157,62 @@ class Transformer(ast.NodeTransformer):
                         raise Exception("The length of the multiline statement is longer than 40. Maybe somewhere "
                                         "it can't recognise the code ending and it gets syntax error recursively")
                     return get_multiline_rownum(i_from, i_to + 1)
-        self.visited_nodes += 1
-        self.analyzer.visit(node)  # szetszedi a regi kodot ast darabokra , A node ast objektum
-        if node in self.analyzer.subjects.keys():  # ha IF objektum benne van az analizalhato objektumok közt ??
-            subjectNode = self.analyzer.subjects[node]  # ifben a változó neve,--> astra alakitva a változó érték
-            _cases = []  # if ágak gyűjtőhelye --> if elif else
+
+        def is_last_row(uast_rownum: int) -> bool:
+            """
+            Returns: A boolean value representing whether the current row and node are the last in their
+            respective structures. If they are, returns True. Otherwise, returns None.
+            """
+            if len(self.analyzer.branches[node]) - 1 == branch_num:  # last if node
+                if len(unparsed_ast.splitlines()) - 1 == uast_rownum:
+                    return True
+
+        def unparsed_ast_with_comments_and_newlines(unparsed_ast: str) -> list:
+            """
+            Input:
+            unparsed_ast - a string of unparsed code containing Python AST (Abstract Syntax Tree) nodes as lines.
+
+            Returns:
+            uast_store - a list of strings containing the parsed code with comments and newlines added
+
+            Description: This function takes in an unparsed code containing Python AST nodes and adds comments and
+            newlines to it. The output is a list of strings containing the parsed code.
+            """
+            global src_rownum, multiline_rownum
+
             uast_store = []
+            src_rownum = node.test.lineno - 1
+            for uast_rownum, uast_row in enumerate(unparsed_ast.splitlines()):
+                last_row = is_last_row(uast_rownum)
+                multiline_rownum = get_multiline_rownum(i_from=src_rownum - 1, i_to=src_rownum)
+
+                if multiline_rownum > 1:
+                    comment_store = ""
+                    while multiline_rownum != 1:
+                        komment = comment_nl_inserter("", last_row=last_row, add_nl=False)
+                        multiline_rownum -= 1
+                        src_rownum += 1
+                        comment_store += komment
+                    # add the comments and newlines to the end of the multiline statement
+                    src_rownum += 1
+                    uast_with_comments_nls = uast_row + \
+                                             comment_store + comment_nl_inserter("", last_row=last_row, add_nl=True)
+                elif multiline_rownum == 1:
+                    uast_with_comments_nls = comment_nl_inserter(uast_row, last_row=last_row)
+                    src_rownum += 1
+                else:
+                    raise Exception(
+                        "Multiline rownum is slower than 1. Probably it is decreased somewhere by 2 times "
+                        "instead of one.")
+                uast_store.append(uast_with_comments_nls + "\n")
+
+            return uast_store
+
+        self.visited_nodes += 1
+        self.analyzer.visit(node)
+        if node in self.analyzer.subjects.keys():
+            subjectNode = self.analyzer.subjects[node]
+            _cases = []
             for branch_num, branch in enumerate(self.analyzer.branches[node]):
                 if branch.flat:
                     for subBranch in branch.flat:
@@ -180,7 +221,6 @@ class Transformer(ast.NodeTransformer):
                                                             guard=pattern.guard(subjectNode),
                                                             body=subBranch.body)
                         try:
-                            # print(ast.parse(ast.unparse(transformed_branch)))
                             _cases.append(transformed_branch)
                         except SyntaxError:
                             return None
@@ -195,30 +235,8 @@ class Transformer(ast.NodeTransformer):
                     _cases.append(transformed_branch)
 
             unparsed_ast = ast.unparse(ast.Match(subject=subjectNode, cases=_cases))
-            src_rownum = node.test.lineno - 1
 
-            for uast_rownum, uast_row in enumerate(unparsed_ast.splitlines()):
-                multiline_rownum = get_multiline_rownum(i_from=src_rownum - 1, i_to=src_rownum)
-
-                if multiline_rownum > 1:
-                    comment_store = ""
-                    while multiline_rownum != 1:
-                        komment = comment_nl_inserter("", add_nl=False)
-                        multiline_rownum -= 1
-                        src_rownum += 1
-                        comment_store += komment
-                    # add the comments and newlines to the end of the multiline statement
-                    src_rownum += 1
-                    uast_with_comments_nls = uast_row + comment_store + comment_nl_inserter("", add_nl=True)
-                elif multiline_rownum == 1:
-                    uast_with_comments_nls = comment_nl_inserter(uast_row)
-                    src_rownum += 1
-                else:
-                    raise Exception("Multiline rownum is slower than 1. Probably it is decreased somewhere by 2 times "
-                                    "instead of one.")
-                uast_store.append(uast_with_comments_nls + "\n")
-
-            self.results[node.test.lineno - 1] = uast_store
+            self.results[node.test.lineno - 1] = unparsed_ast_with_comments_and_newlines(unparsed_ast)
             return ast.Match(subject=subjectNode, cases=_cases)
         elif self.visit_recursively:
             curr_node = node
@@ -285,9 +303,16 @@ class Transformer(ast.NodeTransformer):
             if len(self.results.keys()) == 0:
                 return
 
-        # print("PPP", self.results.keys())
-
-        self.nemtommi()
+        i = 0
+        while i < len(self.src_lines):
+            if i in self.results.keys():
+                # print(f"LINE {i} IS IN RESULTS")
+                if_length, offset = count_actual_lines(self.src_lines, i)
+                self.results[i] = (self.results[i], if_length)
+                if offset != 0:
+                    # print(f" AT LINE ({i}) OFFSET IS: {offset}")
+                    self.results[i + offset] = self.results[i]
+            i += 1
 
         with open(file, "w", encoding='utf-8') as out:
             # print("FFÁÁJL", file)
@@ -306,69 +331,54 @@ class Transformer(ast.NodeTransformer):
         subprocess.run(["python3.11", "-m", "black", "--line-length", "79", file])
         subprocess.run(["python3.11", "-m", "autopep8", file])
 
-        # print(k.stdout)
-        # print(k.stderr)
-        # # Checking for SyntaxErrors in the transformed file
-        # with open(file, "r", encoding='utf-8') as f:
-        #     new_lines = f.read()
-        #     f.seek(0)
-        #     newlines = f.readlines()
-        #
-        # # try:
-        # #     ast.parse(new_lines)
-        # # except SyntaxError as err:
-        # #     self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
-        # #     print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
-        # #     with open(file, "w", encoding='utf-8') as f:
-        # #         f.writelines(src_lines)
-        # #     return
-        #
-        # if self.generate_diffs and OutputHandler.OUTPUT_FOLDER:
-        #     import os
-        #     from pathlib import Path
-        #
-        #     diff = difflib.context_diff(src_lines, newlines, fromfile=str(file), tofile=str(file))
-        #     diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
-        #
-        #     with open(diffile, 'w', encoding='utf-8') as f:
-        #         f.writelines(diff)
+        # Checking for SyntaxErrors in the transformed file
+        with open(file, "r", encoding='utf-8') as f:
+            new_lines = f.read()
+            f.seek(0)
+            newlines = f.readlines()
+
+        try:
+            ast.parse(new_lines)
+        except SyntaxError as err:
+            self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
+            print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
+            with open(file, "w", encoding='utf-8') as f:
+                f.writelines(self.src_lines)
+            return
+
+        if self.generate_diffs and OutputHandler.OUTPUT_FOLDER:
+            import os
+            from pathlib import Path
+
+            diff = difflib.context_diff(self.src_lines, newlines, fromfile=str(file), tofile=str(file))
+            diffile = (OutputHandler.OUTPUT_FOLDER / 'diffs' / f'{os.path.basename(file)}-diffs.diff').resolve()
+
+            with open(diffile, 'w', encoding='utf-8') as f:
+                f.writelines(diff)
 
     def preserved_comments(self, src):
+        """
+        Description: The preserved_comments function takes the original file object as input and reads it line by line,
+        identifying any comments or empty newlines in the code. The function returns a dictionary containing the line
+        number and the comment string iteslf and empty newlines found.
+        """
         global comments
         if self.preserve_comments:
             comments = {}
             src.seek(0)
             tokens = generate_tokens(src.readline)
-            cikluskezdet = True
+            cyclestart = True
             for token in tokens:
                 if token.type == 61:
-                    if cikluskezdet:
-                        comments[f"out{token.start[0]}"] = token.string  # egeszsoros komment
-                        cikluskezdet = False
+                    if cyclestart:
+                        comments[f"out{token.start[0]}"] = token.string  # full row comment
                     else:
-                        comments[f"in{token.start[0]}"] = token.string  # kodot tartalmazo sorban komment
-                        cikluskezdet = False
+                        comments[f"in{token.start[0]}"] = token.string  # inline comment
+                    cyclestart = False
+                elif token.string == "\n":
+                    cyclestart = True
                 else:
-                    if token.string == "\n":
-                        cikluskezdet = True
-                    else:
-                        cikluskezdet = False
-            # print(comments)
+                    cyclestart = False
             for i, row in enumerate(self.src_lines):
                 if row.replace(" ", "").replace("\t", "") == "\n":
-                    comments[f"nl{i + 1}"] = True
-                # else:
-                #     print(row)
-        print(comments)
-
-    def nemtommi(self):
-        i = 0
-        while i < len(self.src_lines):
-            if i in self.results.keys():
-                # print(f"LINE {i} IS IN RESULTS")
-                if_length, offset = count_actual_lines(self.src_lines, i)
-                self.results[i] = (self.results[i], if_length)
-                if offset != 0:
-                    # print(f" AT LINE ({i}) OFFSET IS: {offset}")
-                    self.results[i + offset] = self.results[i]
-            i += 1
+                    comments[f"nl{i + 1}"] = True  # empty newline
