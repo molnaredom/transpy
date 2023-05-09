@@ -41,13 +41,11 @@ def count_actual_lines(lines, pos):
             offset -= 1
 
     base_indent = indentation(lines[pos + offset])
-    # print(f"Base-Indent at line: ({lines[pos+offset].strip()}): {base_indent}")
     res = 1 - offset
     pos += 1
     while pos < len(lines) and is_inside_if(lines, pos, base_indent):
         res += 1
         pos += 1
-    # print(f" ACTUAL LINES: {res}, OFFSET: {offset}")
     return (res, offset)
 
 
@@ -77,25 +75,6 @@ def count_spaces(code):
     return count
 
 
-def does_not_have_return_continue_break_yield(code):
-    """
-    Returns True if the given code contains any of the following statements:
-    - return
-    - continue
-    - break
-    - yield
-    """
-    tree = ast.parse(code)
-    print(code)
-    print(tree)
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Return, ast.Continue, ast.Break, ast.Yield)):
-            print("@@TARTALMAZ")
-            return False
-    print("@@NEM TARTALMAZ")
-    return True
-
-
 from textwrap import dedent
 
 
@@ -117,14 +96,83 @@ class Transformer(ast.NodeTransformer):
             self.logger.log(text)
 
     def visit_If(self, node):
-        global comments, ast_sorok
+        global comments, src_rownum, multiline_rownum
+
+        def is_last_row() -> bool:
+            """
+            Returns: A boolean value representing whether the current row and node are the last in their
+            respective structures. If they are, returns True. Otherwise, returns None.
+            """
+            if len(self.analyzer.branches[node]) - 1 == branch_num:  # last if node
+                if len(unparsed_ast.splitlines()) - 1 == uast_rownum:
+                    return True
+
+        def comment_nl_inserter(row: str, add_nl: bool = True) -> str:
+            """
+                row: a string representing a single row of unparsed ast code without comments or newlines.
+                add_nl: a boolean value indicating whether a newline character should be added to row or not.
+
+                comments: a dictionary containing comments and newlines to be inserted into the code rows.
+                    The keys of the dictionary are strings of the form in{rownum}, out{rownum},
+                    or nl{rownum} where rownum is an integer representing the row number of the original code.
+                    The values of the dictionary are the comments themselves, as strings.
+
+                src_rownum: an integer representing the current row number being processed.
+                multiline_rownum: an integer representing the current row number of a multiline block being processed.
+            """
+            global src_rownum, multiline_rownum
+            if f"in{src_rownum}" in comments:
+                row += "  " + comments[f"in{src_rownum}"]
+            if f"out{src_rownum + 1}" in comments and not is_last_row():
+                if add_nl:
+                    row += "\n" + " " * 4 + comments[f"out{src_rownum + 1}"]
+                else:
+                    row += "  " + comments[f"out{src_rownum + 1}"]
+                    multiline_rownum -= 1
+                src_rownum += 1
+                return comment_nl_inserter(row, add_nl=add_nl)
+            if f"nl{src_rownum + 1}" in comments and not is_last_row():
+                if add_nl:
+                    row += "\n"
+                else:
+                    multiline_rownum -= 1
+                src_rownum += 1
+                return comment_nl_inserter(row, add_nl=add_nl)
+            return row
+
+        def get_multiline_rownum(i_from: int, i_to: int) -> int:
+            """
+            It takes two indices i_from and i_to that define a range of rows in the source code of the object.
+            The function then determines the number of lines that this range of code should occupy when it is
+            split into multiple lines.
+
+            i_from: An integer representing the index of the first row of the code range.
+            i_to: An integer representing the index of the last row of the code range.
+            """
+            original_code = "".join(self.src_lines[i_from:i_to])
+            if "else" in original_code:
+                return 1
+            original_code = original_code.replace("elif", "if")
+            try:
+                ast.unparse(ast.parse(dedent(original_code)))
+                return i_to - i_from
+            except (IndentationError, SyntaxError):
+                try:
+                    # can we parse and unparse with an added line 'pass'
+                    ast.unparse(ast.parse(dedent(original_code + (count_spaces(original_code) + 4) * " " + "pass")))
+                    return i_to - i_from
+                except (IndentationError, SyntaxError):
+                    if i_to - i_from > 40:
+                        raise Exception("The length of the multiline statement is longer than 40. Maybe somewhere "
+                                        "it can't recognise the code ending and it gets syntax error recursively")
+                    return get_multiline_rownum(i_from, i_to + 1)
         self.visited_nodes += 1
         self.analyzer.visit(node)  # szetszedi a regi kodot ast darabokra , A node ast objektum
         if node in self.analyzer.subjects.keys():  # ha IF objektum benne van az analizalhato objektumok közt ??
             subjectNode = self.analyzer.subjects[node]  # ifben a változó neve,--> astra alakitva a változó érték
             _cases = []  # if ágak gyűjtőhelye --> if elif else
-            res = []
-            for hanyadik_barnch, branch in enumerate(self.analyzer.branches[node]):
+            uast_store = []
+            for branch_num, branch in enumerate(self.analyzer.branches[node]):
                 if branch.flat:
                     for subBranch in branch.flat:
                         pattern = self.analyzer.patterns[subBranch]
@@ -146,82 +194,32 @@ class Transformer(ast.NodeTransformer):
                     transformed_branch = ast.match_case(pattern=_pattern, guard=_guard, body=temp.body)
                     _cases.append(transformed_branch)
 
-            def utolsosor():
-                if len(self.analyzer.branches[node]) - 1 == hanyadik_barnch:  # utolso if node
-                    if len(unparsed_ast.splitlines()) - 1 == sorszam:
-                        return True
-                return None
+            unparsed_ast = ast.unparse(ast.Match(subject=subjectNode, cases=_cases))
+            src_rownum = node.test.lineno - 1
 
-            def sorellenor(sor):
-                global ast_sorok
-                if f"in{ast_sorok}" in comments:
-                    sor += "  " + comments[f"in{ast_sorok}"]
-                if f"out{ast_sorok + 1}" in comments and not utolsosor():
-                    elozo_sor_indentalasa = count_spaces(sor.splitlines()[0])
-                    sor += "\n" + " " * 4 + " " * elozo_sor_indentalasa + comments[f"out{ast_sorok + 1}"]
-                    ast_sorok += 1
-                    return sorellenor(sor, )
-                return sor  # minden sorba 4 space a match miatt
-                # *4 indentalas szama , +4 mert mindig bentebb kerul 1 sorral ami ciklusobn belul van
+            for uast_rownum, uast_row in enumerate(unparsed_ast.splitlines()):
+                multiline_rownum = get_multiline_rownum(i_from=src_rownum - 1, i_to=src_rownum)
 
-            def sorszamkulonbseg(i_from, i_to):
-                eredeti_kodsorok = "".join(self.src_lines[i_from:i_to])
-                if "else" in eredeti_kodsorok:
-                    return 1
-                eredeti_kodsorok = eredeti_kodsorok.replace("elif", "if")
-                # print(f"-------------------E <<{i_to - i_from}>>-----------------------")
-                try:
-                    # print(f"{eredeti_kodsorok} --- E1 ")
-                    ast_sor = ast.unparse(ast.parse(dedent(eredeti_kodsorok)))
-                    # print(ast_sor, " --- A1")
-                    return i_to - i_from
-                except (IndentationError, SyntaxError):
-                    try:
-                        e_indent = count_spaces(eredeti_kodsorok)
-                        uj_e_kod = dedent(eredeti_kodsorok + (e_indent + 4) * " " + "pass")
-                        # print(f"{uj_e_kod} --- E2 ")
-                        ast_sor = ast.unparse(ast.parse(uj_e_kod))
-                        # print(ast_sor, "--- A2")
-                        return i_to - i_from
-                    except (IndentationError, SyntaxError):
-                        # print("+1 sor vétele")
-                        if i_to - i_from > 10:
-                            raise Exception
-                        return sorszamkulonbseg(i_from, i_to + 1)
+                if multiline_rownum > 1:
+                    comment_store = ""
+                    while multiline_rownum != 1:
+                        komment = comment_nl_inserter("", add_nl=False)
+                        multiline_rownum -= 1
+                        src_rownum += 1
+                        comment_store += komment
+                    # add the comments and newlines to the end of the multiline statement
+                    src_rownum += 1
+                    uast_with_comments_nls = uast_row + comment_store + comment_nl_inserter("", add_nl=True)
+                elif multiline_rownum == 1:
+                    uast_with_comments_nls = comment_nl_inserter(uast_row)
+                    src_rownum += 1
+                else:
+                    raise Exception("Multiline rownum is slower than 1. Probably it is decreased somewhere by 2 times "
+                                    "instead of one.")
+                uast_store.append(uast_with_comments_nls + "\n")
 
-            ast_atalakitott = ast.Match(subject=subjectNode, cases=_cases)  # mar atalakitott cucc
-
-            unparsed_ast = ast.unparse(ast_atalakitott)
-
-            # print("ÉÉÉÉÉ\n", unparsed_ast)
-            ast_sorok = node.test.lineno - 1
-            print("ast", ast_sorok)
-
-            for sorszam, sor in enumerate(unparsed_ast.splitlines(), 1):
-                sszk = sorszamkulonbseg(i_from=ast_sorok-1, i_to=ast_sorok)
-                print("sszk", sszk)
-                ujsor = sorellenor(sor)
-                if sszk > 1:
-                    while sszk != 1:
-                        sszk -= 1
-                        ast_sorok += 1
-                        komment = sorellenor("")
-                        print("K", komment)
-                        ujsor += "   " + komment
-                        print(">>>>>", ast_sorok, komment)
-
-                res.append(ujsor + "\n")
-                print("=1", ujsor)
-                ast_sorok += 1
-
-            self.results[node.test.lineno - 1] = res
-            result = ast.Match(subject=subjectNode, cases=_cases)
-            print("R", result)
-            # transformed_code_str = astor.to_source(result)
-            # print("TR", result)
-
-            # print("result", ast.unparse(result))
-            return result
+            self.results[node.test.lineno - 1] = uast_store
+            return ast.Match(subject=subjectNode, cases=_cases)
         elif self.visit_recursively:
             curr_node = node
             while isinstance(curr_node, ast.If):
@@ -256,11 +254,11 @@ class Transformer(ast.NodeTransformer):
             self.analyzer.file = file
             global comments
             comments = None
-            self.preserved_comments(src)
             src.seek(0)
             self.src_lines = tuple(src.readlines())
             src.seek(0)
-            # print("SSS",src.read())
+            self.preserved_comments(src)
+            src.seek(0)
 
             parsed_code = self.visit(tree)
 
@@ -284,14 +282,10 @@ class Transformer(ast.NodeTransformer):
             # Join the transformed lines into a single string
             transformed_code_str = "\n".join(transformed_lines)
 
-            # Print the transformed code
-            print("MMM", transformed_code_str)
-
-            # print(ast.unparse(v))
             if len(self.results.keys()) == 0:
                 return
 
-        print("PPP", self.results.keys())
+        # print("PPP", self.results.keys())
 
         self.nemtommi()
 
@@ -309,7 +303,8 @@ class Transformer(ast.NodeTransformer):
                 else:
                     out.write(self.src_lines[i])
                 i += 1
-        # subprocess.run(["python3.11", "-m", "black", file])
+        subprocess.run(["python3.11", "-m", "black", "--line-length", "79", file])
+        subprocess.run(["python3.11", "-m", "autopep8", file])
 
         # print(k.stdout)
         # print(k.stderr)
@@ -358,7 +353,13 @@ class Transformer(ast.NodeTransformer):
                         cikluskezdet = True
                     else:
                         cikluskezdet = False
-            print(comments)
+            # print(comments)
+            for i, row in enumerate(self.src_lines):
+                if row.replace(" ", "").replace("\t", "") == "\n":
+                    comments[f"nl{i + 1}"] = True
+                # else:
+                #     print(row)
+        print(comments)
 
     def nemtommi(self):
         i = 0
