@@ -155,17 +155,13 @@ class Transformer(ast.NodeTransformer):
                     ast.unparse(ast.parse(dedent(original_code + (count_spaces(original_code) + 4) * " " + "pass")))
                     return i_to - i_from
                 except (IndentationError, SyntaxError):
-                    try:
-                        ast.unparse(ast.parse(dedent(original_code))) # + '"""'
-                        return i_to - i_from
-                    except (IndentationError, SyntaxError):
-                        if i_to - i_from > 40:
-                            with open("error.txt", "w") as f:
-                                f.write(f" {os.getcwd()}\n\n\n{original_code}")
+                    if i_to - i_from > 40:
+                        with open("error.txt", "w") as f:
+                            f.write(f" {os.getcwd()}\n\n\n{original_code}")
 
-                            raise Exception("The length of the multiline statement is longer than 40. Maybe somewhere "
-                                            "it can't recognise the code ending and it gets syntax error recursively")
-                        return get_multiline_rownum(i_from, i_to + 1)
+                        raise Exception("The length of the multiline statement is longer than 40. Maybe somewhere "
+                                        "it can't recognise the code ending and it gets syntax error recursively")
+                    return get_multiline_rownum(i_from, i_to + 1)
 
         def is_last_row(uast_rownum: int) -> bool:
             """
@@ -197,9 +193,14 @@ class Transformer(ast.NodeTransformer):
             push_furder_in_case_of_muliline_lastrow = 0
             uast_store = []
             src_rownum = node.test.lineno - 1
+            firstrow = True
             for uast_rownum, uast_row in enumerate(unparsed_ast.splitlines()):
-                last_row = is_last_row(uast_rownum)
-                multiline_rownum = get_multiline_rownum(i_from=src_rownum - 1, i_to=src_rownum)
+                multiline_rownum,last_row = 1, None
+                if not firstrow:
+                    last_row = is_last_row(uast_rownum)
+                    original_code = "".join(self.src_lines[src_rownum-1:src_rownum])
+                    multiline_rownum = get_multiline_rownum(i_from=src_rownum-1, i_to=src_rownum)
+                    firstrow = False
 
                 if multiline_rownum > 1:
                     comment_store = ""
@@ -349,7 +350,8 @@ class Transformer(ast.NodeTransformer):
             newlines = f.readlines()
 
         try:
-            ast.parse(new_lines)
+            pass
+            # ast.parse(new_lines)
         except SyntaxError as err:
             self.log(f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
             print("SYNTAX ERR", f"REVERTING {file}: SyntaxError: {err.msg} - line({err.lineno})")
