@@ -1,5 +1,6 @@
 import ast
 import io
+import os
 import subprocess
 import tokenize
 
@@ -15,7 +16,6 @@ import astor
 def is_inside_if(lines, pos, base_indent):
     # Supposing that base_indent is the indentation of the If-node returns True if the lines[pos] is inside that If-node
     indent = indentation(lines[pos])
-    # print(f"Indent at line: ({lines[pos].strip()}): {indent}")
     stripped = lines[pos].strip()
 
     if (stripped.startswith("#") or not bool(stripped)):  # Empty / comment lines, have to check ahead if possible.
@@ -141,8 +141,10 @@ class Transformer(ast.NodeTransformer):
             i_to: An integer representing the index of the last row of the code range.
             """
             original_code = "".join(self.src_lines[i_from:i_to])
-            if "else" in original_code:
+            if dedent(original_code).startswith("else"):
                 return 1
+            original_code = dedent(original_code)
+            original_code = original_code.lstrip()
             original_code = original_code.replace("elif", "if")
             try:
                 ast.unparse(ast.parse(dedent(original_code)))
@@ -153,10 +155,17 @@ class Transformer(ast.NodeTransformer):
                     ast.unparse(ast.parse(dedent(original_code + (count_spaces(original_code) + 4) * " " + "pass")))
                     return i_to - i_from
                 except (IndentationError, SyntaxError):
-                    if i_to - i_from > 40:
-                        raise Exception("The length of the multiline statement is longer than 40. Maybe somewhere "
-                                        "it can't recognise the code ending and it gets syntax error recursively")
-                    return get_multiline_rownum(i_from, i_to + 1)
+                    try:
+                        ast.unparse(ast.parse(dedent(original_code))) # + '"""'
+                        return i_to - i_from
+                    except (IndentationError, SyntaxError):
+                        if i_to - i_from > 40:
+                            with open("error.txt", "w") as f:
+                                f.write(f" {os.getcwd()}\n\n\n{original_code}")
+
+                            raise Exception("The length of the multiline statement is longer than 40. Maybe somewhere "
+                                            "it can't recognise the code ending and it gets syntax error recursively")
+                        return get_multiline_rownum(i_from, i_to + 1)
 
         def is_last_row(uast_rownum: int) -> bool:
             """
@@ -167,7 +176,7 @@ class Transformer(ast.NodeTransformer):
                 if len(unparsed_ast.splitlines()) - 1 == uast_rownum:
                     return True
 
-        def unparsed_ast_with_comments_and_newlines(unparsed_ast: str) -> list:
+        def unparsed_ast_with_comments_and_newlines(unparsed_ast: str) -> (list, int):
             """
             Input:
             unparsed_ast - a string of unparsed code containing Python AST (Abstract Syntax Tree) nodes as lines.
@@ -177,9 +186,15 @@ class Transformer(ast.NodeTransformer):
 
             Description: This function takes in an unparsed code containing Python AST nodes and adds comments and
             newlines to it. The output is a list of strings containing the parsed code.
+
+            push_furder_in_case_of_muliline_lastrow: if the last row is a multiline sting it will be set a NOT 0 value
+                    and we will add this integer to the transformed length number. With this method we can avoid the
+                    multiline comment disappearing which can result errors in the translated code
+
             """
             global src_rownum, multiline_rownum
 
+            push_furder_in_case_of_muliline_lastrow = 0
             uast_store = []
             src_rownum = node.test.lineno - 1
             for uast_rownum, uast_row in enumerate(unparsed_ast.splitlines()):
@@ -188,6 +203,7 @@ class Transformer(ast.NodeTransformer):
 
                 if multiline_rownum > 1:
                     comment_store = ""
+                    push_furder_in_case_of_muliline_lastrow = multiline_rownum-1
                     while multiline_rownum != 1:
                         komment = comment_nl_inserter("", last_row=last_row, add_nl=False)
                         multiline_rownum -= 1
@@ -205,8 +221,7 @@ class Transformer(ast.NodeTransformer):
                         "Multiline rownum is slower than 1. Probably it is decreased somewhere by 2 times "
                         "instead of one.")
                 uast_store.append(uast_with_comments_nls + "\n")
-
-            return uast_store
+            return uast_store, push_furder_in_case_of_muliline_lastrow
 
         self.visited_nodes += 1
         self.analyzer.visit(node)
@@ -235,8 +250,8 @@ class Transformer(ast.NodeTransformer):
                     _cases.append(transformed_branch)
 
             unparsed_ast = ast.unparse(ast.Match(subject=subjectNode, cases=_cases))
-
-            self.results[node.test.lineno - 1] = unparsed_ast_with_comments_and_newlines(unparsed_ast)
+            unparsed_with_comments, push_furder = unparsed_ast_with_comments_and_newlines(unparsed_ast)
+            self.results[node.test.lineno - 1] = (unparsed_with_comments, push_furder)
             return ast.Match(subject=subjectNode, cases=_cases)
         elif self.visit_recursively:
             curr_node = node
@@ -306,30 +321,26 @@ class Transformer(ast.NodeTransformer):
         i = 0
         while i < len(self.src_lines):
             if i in self.results.keys():
-                # print(f"LINE {i} IS IN RESULTS")
                 if_length, offset = count_actual_lines(self.src_lines, i)
-                self.results[i] = (self.results[i], if_length)
+                self.results[i] = (self.results[i][0], if_length+ self.results[i][1])
                 if offset != 0:
-                    # print(f" AT LINE ({i}) OFFSET IS: {offset}")
                     self.results[i + offset] = self.results[i]
             i += 1
 
         with open(file, "w", encoding='utf-8') as out:
-            # print("FFÁÁJL", file)
             i = 0
             while i < len(self.src_lines):
                 if i in self.results.keys():
                     indent = indentation(self.src_lines[i])
                     res = self.results[i][0]
                     for newLine in res:
-                        # print(indent)
                         out.write(indent * " " + newLine)
                     i += self.results[i][1] - 1
                 else:
                     out.write(self.src_lines[i])
                 i += 1
-        subprocess.run(["python3.11", "-m", "black", "--line-length", "79", file])
-        subprocess.run(["python3.11", "-m", "autopep8", file])
+        subprocess.run(["python3.11", "-m", "black","-q", file])
+        # subprocess.run(["python3.11", "-m", "autopep8", file])
 
         # Checking for SyntaxErrors in the transformed file
         with open(file, "r", encoding='utf-8') as f:
