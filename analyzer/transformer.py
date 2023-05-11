@@ -200,7 +200,7 @@ class Transformer(ast.NodeTransformer):
                     last_row = is_last_row(uast_rownum)
                     original_code = "".join(self.src_lines[src_rownum-1:src_rownum])
                     multiline_rownum = get_multiline_rownum(i_from=src_rownum-1, i_to=src_rownum)
-                    firstrow = False
+                firstrow = False
 
                 if multiline_rownum > 1:
                     comment_store = ""
