@@ -172,6 +172,13 @@ class Transformer(ast.NodeTransformer):
                 if len(unparsed_ast.splitlines()) - 1 == uast_rownum:
                     return True
 
+        def set_push_furder_lines():
+            original_code = "".join(self.src_lines[src_rownum - 1:src_rownum])
+            if '"""' in original_code:
+                return multiline_rownum - 1
+            return 0
+
+
         def unparsed_ast_with_comments_and_newlines(unparsed_ast: str) -> (list, int):
             """
             Input:
@@ -190,7 +197,7 @@ class Transformer(ast.NodeTransformer):
             """
             global src_rownum, multiline_rownum
 
-            push_furder_in_case_of_muliline_lastrow = 0
+            push_furder_lines = 0
             uast_store = []
             src_rownum = node.test.lineno - 1
             firstrow = True
@@ -198,13 +205,12 @@ class Transformer(ast.NodeTransformer):
                 multiline_rownum,last_row = 1, None
                 if not firstrow:
                     last_row = is_last_row(uast_rownum)
-                    original_code = "".join(self.src_lines[src_rownum-1:src_rownum])
                     multiline_rownum = get_multiline_rownum(i_from=src_rownum-1, i_to=src_rownum)
                 firstrow = False
+                push_furder_lines = set_push_furder_lines()
 
                 if multiline_rownum > 1:
                     comment_store = ""
-                    push_furder_in_case_of_muliline_lastrow = multiline_rownum-1
                     while multiline_rownum != 1:
                         komment = comment_nl_inserter("", last_row=last_row, add_nl=False)
                         multiline_rownum -= 1
@@ -214,6 +220,7 @@ class Transformer(ast.NodeTransformer):
                     src_rownum += 1
                     uast_with_comments_nls = uast_row + \
                                              comment_store + comment_nl_inserter("", last_row=last_row, add_nl=True)
+
                 elif multiline_rownum == 1:
                     uast_with_comments_nls = comment_nl_inserter(uast_row, last_row=last_row)
                     src_rownum += 1
@@ -222,7 +229,7 @@ class Transformer(ast.NodeTransformer):
                         "Multiline rownum is slower than 1. Probably it is decreased somewhere by 2 times "
                         "instead of one.")
                 uast_store.append(uast_with_comments_nls + "\n")
-            return uast_store, push_furder_in_case_of_muliline_lastrow
+            return uast_store, push_furder_lines
 
         self.visited_nodes += 1
         self.analyzer.visit(node)
@@ -336,7 +343,7 @@ class Transformer(ast.NodeTransformer):
                     res = self.results[i][0]
                     for newLine in res:
                         out.write(indent * " " + newLine)
-                    i += self.results[i][1] - 1
+                    i += self.results[i][1] - 1 # todo
                 else:
                     out.write(self.src_lines[i])
                 i += 1
