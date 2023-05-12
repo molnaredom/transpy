@@ -141,7 +141,7 @@ class Transformer(ast.NodeTransformer):
             i_to: An integer representing the index of the last row of the code range.
             """
             original_code = "".join(self.src_lines[i_from:i_to])
-            if dedent(original_code).startswith("else"):
+            if dedent(original_code).startswith("else") or dedent(original_code).startswith("try") or dedent(original_code).startswith("except"):
                 return 1
             original_code = dedent(original_code)
             original_code = original_code.lstrip()
@@ -205,6 +205,7 @@ class Transformer(ast.NodeTransformer):
                 multiline_rownum,last_row = 1, None
                 if not firstrow:
                     last_row = is_last_row(uast_rownum)
+                    original_code = "".join(self.src_lines[src_rownum - 1:src_rownum])
                     multiline_rownum = get_multiline_rownum(i_from=src_rownum-1, i_to=src_rownum)
                 firstrow = False
                 push_furder_lines = set_push_furder_lines()
