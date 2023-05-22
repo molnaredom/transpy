@@ -9,6 +9,7 @@ from .utils import OutputHandler
 from functools import lru_cache
 import difflib
 from tokenize import generate_tokens
+import astor
 
 
 @lru_cache(maxsize=128)
@@ -208,15 +209,21 @@ class Transformer(ast.NodeTransformer):
             for uast_rownum, uast_row in enumerate(unparsed_ast.splitlines()):
                 if firstrow:
                     firstrow = False
-                    print(uast_row)
-                    uast_store.append(uast_row + "\n") # mindig match
+                    uast_store.append(uast_row+"\n") # mindig match
+                    while True:
+                        # src_rownum += 1
+                        original_code = dedent("".join(self.src_lines[src_rownum - 1:src_rownum])).strip()
+                        if original_code.startswith("\n") or original_code.startswith('"""') or original_code.startswith(')') or original_code.startswith('}'):
+                            src_rownum += 1
+                        else:
+                            break
                     continue
 
                 last_row = is_last_row(uast_rownum)
-                original_code = "".join(self.src_lines[src_rownum:src_rownum+1])
-                multiline_rownum = get_multiline_rownum(i_from=src_rownum, i_to=src_rownum+1)
-                push_furder_lines = set_push_furder_lines()
+                original_code = "".join(self.src_lines[src_rownum - 1:src_rownum])
 
+                multiline_rownum = get_multiline_rownum(i_from=src_rownum-1, i_to=src_rownum)
+                push_furder_lines = set_push_furder_lines()
 
 
                 if multiline_rownum > 1:
@@ -401,9 +408,9 @@ class Transformer(ast.NodeTransformer):
             for token in tokens:
                 if token.type == 61:
                     if cyclestart:
-                        comments[f"out{token.start[0]-1}"] = token.string  # full row comment
+                        comments[f"out{token.start[0]}"] = token.string  # full row comment
                     else:
-                        comments[f"in{token.start[0]-1}"] = token.string  # inline comment
+                        comments[f"in{token.start[0]}"] = token.string  # inline comment
                     cyclestart = False
                 elif token.string == "\n":
                     cyclestart = True
@@ -411,5 +418,5 @@ class Transformer(ast.NodeTransformer):
                     cyclestart = False
             for i, row in enumerate(self.src_lines):
                 if row.replace(" ", "").replace("\t", "") == "\n":
-                    comments[f"nl{i}"] = True  # empty newline
+                    comments[f"nl{i + 1}"] = True  # empty newline
         print(comments)
