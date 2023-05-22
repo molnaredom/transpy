@@ -9,7 +9,6 @@ from .utils import OutputHandler
 from functools import lru_cache
 import difflib
 from tokenize import generate_tokens
-import astor
 
 
 @lru_cache(maxsize=128)
@@ -141,7 +140,7 @@ class Transformer(ast.NodeTransformer):
             i_to: An integer representing the index of the last row of the code range.
             """
             original_code = "".join(self.src_lines[i_from:i_to])
-            if dedent(original_code).startswith("else") or dedent(original_code).startswith("try") or dedent(original_code).startswith("except"):
+            if dedent(original_code).startswith("else:") or dedent(original_code).startswith("try:") or dedent(original_code).startswith("except "):
                 return 1
             original_code = dedent(original_code)
             original_code = original_code.lstrip()
@@ -197,18 +196,28 @@ class Transformer(ast.NodeTransformer):
             """
             global src_rownum, multiline_rownum
 
+            # todo az elso sor az match, semmiképpen nem tarsitzhatunk ehhez kommentet
+            # todo
+            # todo
+            # todo
+            # todo
             push_furder_lines = 0
             uast_store = []
             src_rownum = node.test.lineno - 1
             firstrow = True
             for uast_rownum, uast_row in enumerate(unparsed_ast.splitlines()):
-                multiline_rownum,last_row = 1, None
-                if not firstrow:
-                    last_row = is_last_row(uast_rownum)
-                    original_code = "".join(self.src_lines[src_rownum - 1:src_rownum])
-                    multiline_rownum = get_multiline_rownum(i_from=src_rownum-1, i_to=src_rownum)
-                firstrow = False
+                if firstrow:
+                    firstrow = False
+                    print(uast_row)
+                    uast_store.append(uast_row + "\n") # mindig match
+                    continue
+
+                last_row = is_last_row(uast_rownum)
+                original_code = "".join(self.src_lines[src_rownum:src_rownum+1])
+                multiline_rownum = get_multiline_rownum(i_from=src_rownum, i_to=src_rownum+1)
                 push_furder_lines = set_push_furder_lines()
+
+
 
                 if multiline_rownum > 1:
                     comment_store = ""
@@ -218,9 +227,9 @@ class Transformer(ast.NodeTransformer):
                         src_rownum += 1
                         comment_store += komment
                     # add the comments and newlines to the end of the multiline statement
+                    comment = comment_nl_inserter("", last_row=last_row, add_nl=True)
+                    uast_with_comments_nls = uast_row + comment_store + comment
                     src_rownum += 1
-                    uast_with_comments_nls = uast_row + \
-                                             comment_store + comment_nl_inserter("", last_row=last_row, add_nl=True)
 
                 elif multiline_rownum == 1:
                     uast_with_comments_nls = comment_nl_inserter(uast_row, last_row=last_row)
@@ -348,7 +357,7 @@ class Transformer(ast.NodeTransformer):
                 else:
                     out.write(self.src_lines[i])
                 i += 1
-        subprocess.run(["python3.11", "-m", "black","-q", file])
+        # subprocess.run(["python3.11", "-m", "black","-q", file])
         # subprocess.run(["python3.11", "-m", "autopep8", file])
 
         # Checking for SyntaxErrors in the transformed file
@@ -392,9 +401,9 @@ class Transformer(ast.NodeTransformer):
             for token in tokens:
                 if token.type == 61:
                     if cyclestart:
-                        comments[f"out{token.start[0]}"] = token.string  # full row comment
+                        comments[f"out{token.start[0]-1}"] = token.string  # full row comment
                     else:
-                        comments[f"in{token.start[0]}"] = token.string  # inline comment
+                        comments[f"in{token.start[0]-1}"] = token.string  # inline comment
                     cyclestart = False
                 elif token.string == "\n":
                     cyclestart = True
@@ -402,4 +411,5 @@ class Transformer(ast.NodeTransformer):
                     cyclestart = False
             for i, row in enumerate(self.src_lines):
                 if row.replace(" ", "").replace("\t", "") == "\n":
-                    comments[f"nl{i + 1}"] = True  # empty newline
+                    comments[f"nl{i}"] = True  # empty newline
+        print(comments)

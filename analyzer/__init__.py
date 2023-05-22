@@ -26,7 +26,7 @@ from .utils import OutputHandler
 def transform_helper(file):
     tr = Transformer()
     tr.transform(file)
-    print((tr.visited_nodes,"\n......................\n",  tr.results.keys()))
+    # print((tr.visited_nodes,"\n......................\n",  tr.results.keys()))
     return (tr.visited_nodes, len(tr.results.keys()))
 
 
